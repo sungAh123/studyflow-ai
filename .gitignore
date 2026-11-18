@@ -1,0 +1,22 @@
+# Markdown
+*.md
+!README.md
+
+# Local and generated files
+.DS_Store
+*.db
+node_modules/
+__pycache__/
+*.py[cod]
+
+# Virtual Environment
+venv/
+.venv/
+
+# Pytest
+.pytest_cache/
+
+# Secrets and local configuration
+.env*
+!.env.example
+
