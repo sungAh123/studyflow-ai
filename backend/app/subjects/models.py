@@ -1,4 +1,4 @@
-from sqlalchemy import ForeignKey, String
+from sqlalchemy import ForeignKey, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base
@@ -6,9 +6,11 @@ from app.core.db import Base
 
 class Subject(Base):
     __tablename__ = "subjects"
+    __table_args__ = (UniqueConstraint("user_id", "name"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    name: Mapped[str] = mapped_column(String(100), unique=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    name: Mapped[str] = mapped_column(String(100))
     notion_page_id: Mapped[str | None] = mapped_column(String(64), default=None)
 
     timetables: Mapped[list["Timetable"]] = relationship(

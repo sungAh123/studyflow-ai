@@ -5,26 +5,47 @@ from .models import Subject, Timetable
 from .schemas import TimetableIn
 
 
-def get_or_create_subject(db: Session, name: str) -> Subject:
+def get_or_create_subject(db: Session, user_id: int, name: str) -> Subject:
     name = name.strip()
-    subject = db.scalars(select(Subject).where(Subject.name==name)).first()
+    subject = db.scalars(
+        select(Subject).where(Subject.user_id==user_id, Subject.name==name)
+    ).first()
     if subject is None:
-        subject = Subject(name=name)
+        subject = Subject(user_id=user_id, name=name)
         db.add(subject)
         db.flush()
     return subject
 
 
-def list_subjects(db: Session) -> list[Subject]:
-    return list(db.scalars(select(Subject).order_by(Subject.name)))
+def list_subjects(db: Session, user_id: int) -> list[Subject]:
+    return list(
+        db.scalars(
+            select(Subject).where(Subject.user_id==user_id).order_by(Subject.name)
+        )
+    )
 
 
-def list_timetables(db: Session) -> list[Timetable]:
-    return list(db.scalars(select(Timetable).order_by(Timetable.day, Timetable.start_time)))
+def list_timetables(db: Session, user_id: int) -> list[Timetable]:
+    return list(
+        db.scalars(
+            select(Timetable)
+            .join(Subject)
+            .where(Subject.user_id==user_id)
+            .order_by(Timetable.day, Timetable.start_time)
+        )
+    )
 
 
-def create_timetable(db: Session, data: TimetableIn) -> Timetable:
-    subject = get_or_create_subject(db, data.subject_name)
+def _get_owned_timetable(db: Session, user_id: int, timetable_id: int) -> Timetable | None:
+    return db.scalar(
+        select(Timetable)
+        .join(Subject)
+        .where(Timetable.id==timetable_id, Subject.user_id==user_id)
+    )
+
+
+def create_timetable(db: Session, user_id: int, data: TimetableIn) -> Timetable:
+    subject = get_or_create_subject(db, user_id, data.subject_name)
     row = Timetable(
         subject_id=subject.id,
         day=data.day,
@@ -37,11 +58,13 @@ def create_timetable(db: Session, data: TimetableIn) -> Timetable:
     return row
 
 
-def update_timetable(db: Session, timetable_id: int, data: TimetableIn) -> Timetable | None:
-    row = db.get(Timetable, timetable_id)
+def update_timetable(
+    db: Session, user_id: int, timetable_id: int, data: TimetableIn
+) -> Timetable | None:
+    row = _get_owned_timetable(db, user_id, timetable_id)
     if row is None:
         return None
-    row.subject_id = get_or_create_subject(db, data.subject_name).id
+    row.subject_id = get_or_create_subject(db, user_id, data.subject_name).id
     row.day = data.day
     row.start_time = data.start_time
     row.end_time = data.end_time
@@ -50,11 +73,10 @@ def update_timetable(db: Session, timetable_id: int, data: TimetableIn) -> Timet
     return row
 
 
-def delete_timetable(db: Session, timetable_id: int) -> bool:
-    row = db.get(Timetable, timetable_id)
+def delete_timetable(db: Session, user_id: int, timetable_id: int) -> bool:
+    row = _get_owned_timetable(db, user_id, timetable_id)
     if row is None:
         return False
-    
     db.delete(row)
     db.commit()
     return True
