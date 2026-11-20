@@ -25,4 +25,4 @@ class Timetable(Base):
     start_time: Mapped[str] = mapped_column(String(5))  # "09:00"
     end_time: Mapped[str] = mapped_column(String(5))
 
-    Subject: Mapped[Subject] = relationship(back_populates="timetables")
+    subject: Mapped[Subject] = relationship(back_populates="timetables")

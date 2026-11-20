@@ -16,7 +16,7 @@ def get_or_create_subject(db: Session, name: str) -> Subject:
 
 
 def list_subjects(db: Session) -> list[Subject]:
-    return list[db.scalars(select(Subject).order_by(Subject.name))]
+    return list(db.scalars(select(Subject).order_by(Subject.name)))
 
 
 def list_timetables(db: Session) -> list[Timetable]:
