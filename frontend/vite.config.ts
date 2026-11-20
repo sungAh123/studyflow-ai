@@ -4,6 +4,9 @@ import { defineConfig } from 'vite'
 export default defineConfig({
   plugins: [react()],
   server: {
+    watch: {
+      usePolling: true,
+    },
     proxy: {
       "/api": process.env.VITE_API_TARGET || "http://localhost:8000",
     },
