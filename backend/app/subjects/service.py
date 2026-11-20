@@ -7,7 +7,7 @@ from .schemas import TimetableIn
 
 def get_or_create_subject(db: Session, name: str) -> Subject:
     name = name.strip()
-    subject = db.scalars(select(Subject).where(Subject.name==name))
+    subject = db.scalars(select(Subject).where(Subject.name==name)).first()
     if subject is None:
         subject = Subject(name=name)
         db.add(subject)
