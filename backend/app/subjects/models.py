@@ -12,7 +12,7 @@ class Subject(Base):
     notion_page_id: Mapped[str | None] = mapped_column(String(64), default=None)
 
     timetables: Mapped[list["Timetable"]] = relationship(
-        back_populates="subject", cascade="all, default-orphan"
+        back_populates="subject", cascade="all, delete-orphan"
     )
 
 

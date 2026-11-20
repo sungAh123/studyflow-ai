@@ -13,7 +13,7 @@ class TimetableIn(BaseModel):
 
 
 class TimetableOut(BaseModel):
-    model_confi = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True)
     id: int
     subject_id: int
     day: str
