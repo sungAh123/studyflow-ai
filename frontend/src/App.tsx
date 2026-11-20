@@ -45,6 +45,7 @@ export default function App() {
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [timetables, setTimetables] = useState<Timetable[]>([]);
   const [form, setForm] = useState<TimetableForm>(EMPTY);
+  const [editingId, setEditingId] = useState<number | null>(null);
   const [error, setError] = useState("");
 
   const load = async () => {
@@ -64,12 +65,37 @@ export default function App() {
     load();
   }, []);
 
+  const nameOf = (id: number) => subjects.find((s) => s.id === id)?.name ?? "";
+
+  const startEdit = (t: Timetable) => {
+    setEditingId(t.id);
+    setForm({
+      subject_name: nameOf(t.subject_id),
+      day: t.day,
+      start_time: t.start_time,
+      end_time: t.end_time,
+    });
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setForm(EMPTY);
+  }
+
   const submit = async (e: SyntheticEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError("");
     try {
-      await api("/timetables", {method: "POST", body: JSON.stringify(form)});
-      setForm({...EMPTY, day: form.day});
+      if (editingId === null) {
+        await api("/timetables", {method: "POST", body: JSON.stringify(form)});
+        setForm({...EMPTY, day: form.day});
+      } else {
+        await api(`/timetables/${editingId}`, {
+          method: "PUT",
+          body: JSON.stringify(form),
+        });
+        cancelEdit();
+      }
       load();
     } catch (e) {
       setError((e as Error).message);
@@ -81,8 +107,6 @@ export default function App() {
     load();
   };
 
-  const nameOf = (id: number) => subjects.find((s) => s.id === id)?.name ?? "";
-
   const set = 
     (key: keyof TimetableForm) =>
     (e: ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
@@ -93,7 +117,7 @@ export default function App() {
         <h1>StudyFlow AI</h1>
         {error && <p style={{ color: "crimson" }}>{error}</p>}
 
-        <h2>시간표 등록</h2>
+        <h2>{editingId === null ? "시간표 등록" : "시간표 수정"}</h2>
         <form onSubmit={submit} style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <input placeholder="과목명" value={form.subject_name} onChange={set("subject_name")} required />
           <select value={form.day} onChange={set("day")}>
@@ -101,7 +125,10 @@ export default function App() {
           </select>
           <input type="time" value={form.start_time} onChange={set("start_time")} required />
           <input type="time" value={form.end_time} onChange={set("end_time")} required />
-          <button type="submit">등록</button>
+          <button type="submit">{editingId === null ? "등록" : "저장"}</button>
+          {editingId !== null && (
+            <button type="button" onClick={cancelEdit}>취소</button>
+          )}
         </form>
 
         <h2>과목 목록 ({subjects.length})</h2>
@@ -112,6 +139,7 @@ export default function App() {
           {timetables.map((t) => (
             <li key={t.id}>
               {t.day} {t.start_time}~{t.end_time} · {nameOf(t.subject_id)}{" "}
+              <button onClick={() => startEdit(t)}>수정</button>{" "}
               <button onClick={() => remove(t.id)}>삭제</button>
             </li>
           ))}
