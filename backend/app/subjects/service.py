@@ -80,3 +80,9 @@ def delete_timetable(db: Session, user_id: int, timetable_id: int) -> bool:
     db.delete(row)
     db.commit()
     return True
+
+
+def get_owned_subject(db: Session, user_id: int, subject_id: int) -> Subject | None:
+    return db.scalar(
+        select(Subject).where(Subject.id==subject_id, Subject.user_id==user_id)
+    )
