@@ -1,5 +1,5 @@
 from typing import Literal
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 Day = Literal["월", "화", "수", "목", "금", "토", "일"]
 TimeStr = Field(pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
@@ -10,6 +10,14 @@ class TimetableIn(BaseModel):
     day: Day
     start_time: str = TimeStr
     end_time: str = TimeStr
+
+    @field_validator("subject_name")
+    @classmethod
+    def strip_name(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("과목명을 입력해 주세요.")
+        return v
 
 
 class TimetableOut(BaseModel):
