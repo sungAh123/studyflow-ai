@@ -30,7 +30,7 @@ def start_summarization(db: Session, user_id: int, document_id: int) -> Document
         raise LookupError("자료를 찾을 수 없습니다.")
     # page_count는 추출에 성공했을 때만 채워짐. 추출 실패 문서는 요약할 수 없다.
     if doc.status not in STARTABLE or not doc.pages_text:
-        raise("텍스트 추출이 끝난 자료만 요약할 수 있습니다.")
+        raise SummaryError("텍스트 추출이 끝난 자료만 요약할 수 있습니다.")
     documents_service.set_status(db, doc, DocStatus.SUMMARIZING)    # 중복 클릭 방지
     return doc
 
