@@ -23,3 +23,7 @@ TOKEN_ENCRYPTION_KEY = _required("TOKEN_ENCRYPTION_KEY")
 MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "20"))
 MAX_PAGES = int(os.getenv("MAX_PAGES", "100"))
 MIN_TEXT_CHARS = int(os.getenv("MIN_TEXT_CHARS", "50"))
+
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:3b")
+OLLAMA_TIMEOUT = int(os.getenv("OLLAMA_TIMEOUT", "600"))
+CHUNK_CHARS = int(os.getenv("CHUNK_CHARS", "6000"))

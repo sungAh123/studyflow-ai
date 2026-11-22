@@ -10,6 +10,8 @@ class DocStatus:
     UPLOADED = "uploaded"
     EXTRACTING = "extracting"
     EXTRACTED = "extracted"
+    SUMMARIZING = "summarizing"
+    DONE = "done"
     FAILED = "failed"
 
 

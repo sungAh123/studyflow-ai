@@ -12,6 +12,13 @@ services:
       - ./backend/tests:/app/tests
       - ./backend/pytest.ini:/app/pytest.ini
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    depends_on: 
+      - ollama
+
+  ollama:
+    image: ollama/ollama
+    volumes:
+      - ollama_data:/root/.ollama
 
   frontend:
     image: node:20-alpine
@@ -26,3 +33,19 @@ services:
     command: sh -c "npm install && npm run dev -- --host"
     depends_on:
       - app
+
+  test:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    working_dir: /app
+    profiles:
+      - test
+    env_file:
+      - ./backend/.env
+    volumes:
+      - ./backend:/app
+    command: sh -c "pip install -q -r requirements-dev.txt && pytest -v"
+
+volumes:
+  ollama_data:
