@@ -50,11 +50,32 @@ def get_document(
     return doc
 
 
+@router.post("/{document_id}/extract", response_model=DocumentOut, status_code=202)
+def reextract_document(
+    document_id: int,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    try:
+        doc = service.start_reextraction(db, user.id, document_id)
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except service.StateError as e:
+        raise HTTPException(409, str(e))
+    background_tasks.add_task(service.run_extraction, doc.id)
+    return doc
+
+
 @router.delete("/{document_id}", status_code=204)
 def remove_document(
     document_id: int,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    if not service.delete_document(db, user.id, document_id):
+    try:
+        deleted = service.delete_document(db, user.id, document_id)
+    except service.StateError as e:
+        raise HTTPException(409, str(e))
+    if not deleted:
         raise HTTPException(404, "자료를 찾을 수 없습니다.")
