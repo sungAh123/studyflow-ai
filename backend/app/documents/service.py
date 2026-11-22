@@ -25,10 +25,20 @@ _pool = ProcessPoolExecutor(
 
 UPLOAD_ROOT = Path("data/uploads")
 MAX_BYTES = MAX_UPLOAD_MB * 1024 * 1024
+BUSY_STATUSES = (
+    DocStatus.UPLOADED,
+    DocStatus.EXTRACTING,
+    DocStatus.SUMMARIZING,
+    DocStatus.CANCELLING,
+)
 
 
 class UploadError(Exception):
     """사용자에게 그대로 보여줄 수 있는 업로드 실패 사유."""
+
+
+class StateError(Exception):
+    """현재 상태에서는 할 수 없는 작업, 사용자에게 그대로 보여줄 수 있다."""
 
 
 def save_upload(db: Session, user_id: int, subject_id: int, file: UploadFile) -> Document:
@@ -89,10 +99,42 @@ def delete_document(db: Session, user_id: int, document_id: int) -> bool:
     doc = get_document(db, user_id, document_id)
     if doc is None:
         return False
+    if doc.status in BUSY_STATUSES:
+        raise StateError(
+            "처리 중인 자료는 삭제할 수 없습니다."
+            "요약 중이면 먼저 중지하고, 추출 중이면 끝날 때까지 기다려 주세요."
+        )
     Path(doc.stored_path).unlink(missing_ok=True)
     db.delete(doc)
     db.commit()
     return True
+
+
+def start_reextraction(db: Session, user_id: int, document_id: int) -> Document:
+    doc = get_document(db, user_id, document_id)
+    if doc is None:
+        raise LookupError("자료를 찾을 수 없습니다.")
+    if doc.status != DocStatus.FAILED:
+        raise StateError("실패한 자료만 다시 추출할 수 있습니다.")
+    doc.pages_text = None
+    doc.page_count = None
+    doc.progress_done = 0
+    doc.progress_total = 0
+    set_status(db, doc, DocStatus.UPLOADED)
+    return doc
+
+
+def recover_interrupted(db: Session) -> int:
+    """서버가 시작될 때 호출한다. 이 시점에는 백그라운드 작업이 살아 있을 수 없으므로
+    처리 중으로 남은 문서를 실패로 돌려 다시 시도할 수 있게 한다."""
+    rows = list(db.scalars(select(Document).where(Document.status.in_(BUSY_STATUSES))))
+    for doc in rows:
+        doc.status = DocStatus.FAILED
+        doc.error_message = "서버가 재시작되어 처리가 중단되었습니다. 다시 시도해 주세요."
+        doc.progress_done = 0
+        doc.progress_total = 0
+    db.commit()
+    return len(rows)
 
 
 def _extract(path: str) -> list[str]:
