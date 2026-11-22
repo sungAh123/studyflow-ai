@@ -220,3 +220,21 @@ def test_other_user_cannot_access_summary(
     assert other.post(f"/api/summaries/{doc_id}").status_code == 404
 
     assert client.get(f"/api/summaries/{doc_id}").status_code == 200
+
+
+def test_deleting_document_also_deletes_summary(
+    client, extracted_doc, fake_llm, chunk_json
+):
+    from sqlalchemy import func, select
+
+    from app.core.db import SessionLocal
+    from app.summaries.models import Summary
+
+    doc_id = extracted_doc(client)
+    fake_llm.responses = [chunk_json()]
+    summarize(client, doc_id)
+
+    assert client.delete(f"/api/documents/{doc_id}").status_code == 204
+
+    with SessionLocal() as db:
+        assert db.scalar(select(func.count()).select_from(Summary)) == 0

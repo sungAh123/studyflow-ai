@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 
 from sqlalchemy import JSON, ForeignKey, String
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base
 
@@ -28,4 +28,7 @@ class Document(Base):
     pages_text: Mapped[list[str] | None] = mapped_column(JSON, default=None)
     created_at: Mapped[datetime] = mapped_column(
         default=lambda: datetime.now(timezone.utc)
+    )
+    summary: Mapped["Summary | None"] = relationship(
+        "Summary", cascade="all, delete-orphan", uselist=False
     )
