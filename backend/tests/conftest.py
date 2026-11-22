@@ -143,3 +143,55 @@ def make_pdf():
         return data
 
     return _make
+
+
+@pytest.fixture
+def fake_llm(monkeypatch):
+    """Ollama 호출을 가짜로 대체한다. calls에 (system, user)가 쌓이고, 응답은 순서대로 꺼낸다."""
+
+    class FakeLLM:
+        def __init__(self):
+            self.calls = []
+            self.responses = []  # dict는 그대로 반환, Exception은 raise
+
+        def __call__(self, system, user):
+            self.calls.append((system, user))
+            if not self.responses:
+                raise AssertionError("준비된 가짜 응답이 부족합니다.")
+            item = self.responses.pop(0)
+            if isinstance(item, Exception):
+                raise item
+            return item
+
+    fake = FakeLLM()
+    monkeypatch.setattr("app.summaries.ollama.chat_json", fake)
+    return fake
+
+
+@pytest.fixture
+def chunk_json():
+    """LLM이 조각마다 돌려주는 JSON을 흉내 내는 헬퍼."""
+
+    def _make(summary="요약 문장", title="소주제", points=("핵심 1",), terms=()):
+        return {
+            "summary": summary,
+            "sections": [{"title": title, "points": list(points)}],
+            "terms": [{"term": t, "definition": d} for t, d in terms],
+        }
+
+    return _make
+
+
+@pytest.fixture
+def extracted_doc(make_subject, make_pdf):
+    """업로드 + 추출까지 끝난 문서 ID를 만든다."""
+    from tests.test_documents import TEXT, upload, wait_done
+
+    def _make(client, pages=None, subject_name="운영체제"):
+        subject_id = make_subject(client, subject_name)
+        res = upload(client, subject_id, make_pdf(pages or [TEXT, TEXT]))
+        doc = wait_done(client, res.json()["id"])
+        assert doc["status"] == "extracted"
+        return doc["id"]
+
+    return _make
