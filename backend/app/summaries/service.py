@@ -50,7 +50,7 @@ def summarize_pages(pages: list[str]) -> dict:
     partials: list[ChunkResult] = []
     for chunk in chunks:
         try:
-            partials.append(ChunkResult.model_validate(ollama.chat_json(CHUNK_SYSTEM, chunks)))
+            partials.append(ChunkResult.model_validate(ollama.chat_json(CHUNK_SYSTEM, chunk)))
         except ValidationError as e:
             raise SummaryError("AI 응답 형식이 올바르지 않습니다. 다시 시도해 주세요.") from e
 
