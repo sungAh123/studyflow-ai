@@ -47,6 +47,7 @@ export default function DocumentsPage({ onUnauthorized }: Props) {
             const s = await api<Subject[]>("/subjects");
             setSubjects(s);
             if (s.length > 0) setSubjectId(String(s[0].id));
+            await loadDocuments();
         } catch (e) {
             handleError(e);
         }
