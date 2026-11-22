@@ -13,6 +13,7 @@ class DocStatus:
     SUMMARIZING = "summarizing"
     DONE = "done"
     FAILED = "failed"
+    CANCELLING = "cancelling"
 
 
 class Document(Base):
