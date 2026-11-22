@@ -112,3 +112,14 @@ def run_extraction(document_id: int) -> None:
             doc.page_count = len(pages)
             doc.status = DocStatus.EXTRACTED
         db.commit()
+
+
+def get_for_processing(db: Session, document_id: int) -> Document | None:
+    """백그라운드 작업용(소유자 확인 없음.) 요청 경로에서는 get_document를 씀"""
+    return db.get(Document, document_id)
+
+
+def set_status(db: Session, doc: Document, status: str, error: str | None = None) -> None:
+    doc.status = status
+    doc.error_message = error
+    db.commit()
