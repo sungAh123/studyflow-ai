@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState, type SyntheticEvent } from "react";
 import { api, ApiError } from "./api";
-import type { DocStatus, DocumentDetail, DocumentItem, Subject } from "./types";
+import type { DocStatus, DocumentDetail, DocumentItem, Subject, SummaryResult } from "./types";
 
 const STATUS_LABEL: Record<DocStatus, string> = {
   uploaded: "업로드됨",
   extracting: "추출 중",
   extracted: "추출 완료",
+  summarizing: "요약 중",
+  done: "요약 완료",
   failed: "실패",
 };
 
@@ -20,6 +22,7 @@ export default function DocumentsPage({ onUnauthorized }: Props) {
   const [file, setFile] = useState<File | null>(null);
   const [detail, setDetail] = useState<DocumentDetail | null>(null);
   const [error, setError] = useState("");
+  const [summary, setSummary] = useState<SummaryResult | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
   const handleError = (e: unknown) => {
@@ -52,7 +55,7 @@ export default function DocumentsPage({ onUnauthorized }: Props) {
 
   //처리 중인 문서가 있으면 2초마다 상태 다시 조회
   const inProgress = documents.some(
-    (d) => d.status === "uploaded" || d.status === "extracting"
+    (d) => d.status === "uploaded" || d.status === "extracting" || d.status === "summarizing"
   );
   useEffect(() => {
     if (!inProgress) return;
@@ -99,6 +102,26 @@ export default function DocumentsPage({ onUnauthorized }: Props) {
     }
   };
 
+  const summarize = async (id: number) => {
+    setError("");
+    try {
+      await api(`/summaries/${id}`, {method: "POST"});
+      setSummary(null);
+      await loadDocuments();
+    } catch (e) {
+      handleError(e);
+    }
+  };
+
+  const viewSummary = async (id: number) => {
+    setError("");
+    try {
+      setSummary(await api<SummaryResult>(`/summaries/${id}`));
+    } catch (e) {
+      handleError(e);
+    }
+  };
+
   return (
 <section>
       {error && <p style={{ color: "crimson" }}>{error}</p>}
@@ -133,8 +156,16 @@ export default function DocumentsPage({ onUnauthorized }: Props) {
             {d.error_message && (
               <span style={{ color: "crimson" }}> — {d.error_message}</span>
             )}{" "}
-            {d.status === "extracted" && (
-              <button onClick={() => view(d.id)}>텍스트 보기</button>
+            {d.page_count !== null && d.status !== "summarizing" && (
+              <>
+                <button onClick={() => view(d.id)}>텍스트 보기</button>{" "}
+                <button onClick={() => summarize(d.id)}>
+                  {d.status === "done" ? "다시 요약" : "요약하기"}
+                </button>{" "}
+              </>
+            )}
+            {d.status === "done" && (
+              <button onClick={() => viewSummary(d.id)}>요약 보기</button>
             )}{" "}
             <button onClick={() => remove(d.id)}>삭제</button>
           </li>
@@ -153,6 +184,28 @@ export default function DocumentsPage({ onUnauthorized }: Props) {
               </pre>
             </div>
           ))}
+        </>
+      )}
+
+      {summary && (
+        <>
+          <h2>요약 미리보기</h2>
+          <button onClick={() => setSummary(null)}>닫기</button>
+          <h3>전체 요약</h3>
+          <p>{summary.overview}</p>
+          <h3>목차별 핵심</h3>
+          {summary.sections.map((s, i) => (
+            <div key={i}>
+              <h4>{s.title}</h4>
+              <ul>{s.points.map((p, j) => <li key={j}>{p}</li>)}</ul>
+            </div>
+          ))}
+          <h3>주요 용어</h3>
+          <ul>
+            {summary.terms.map((t, i) => (
+              <li key={i}><b>{t.term}</b>: {t.definition}</li>
+            ))}
+          </ul>
         </>
       )}
     </section>

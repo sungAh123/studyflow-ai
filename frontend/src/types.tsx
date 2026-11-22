@@ -1,5 +1,6 @@
 export type Day = "월" | "화" | "수" | "목" | "금" | "토" | "일";
-export type DocStatus = "uploaded" | "extracting" | "extracted" | "failed";
+export type DocStatus =
+  | "uploaded" | "extracting" | "extracted" | "summarizing" | "done" | "failed";
 
 export interface User {
   id: number;
@@ -41,4 +42,13 @@ export interface DocumentItem {
 
 export interface DocumentDetail extends DocumentItem {
   pages_text: string[] | null;
+}
+
+export interface SummaryResult {
+  id: number;
+  document_id: number;
+  overview: string;
+  sections: { title: string; points: string[] }[];
+  terms: { term: string; definition: string }[];
+  created_at: string;
 }
