@@ -37,6 +37,8 @@ export interface DocumentItem {
   status: DocStatus;
   error_message: string | null;
   page_count: number | null;
+  progress_done: number;
+  progress_total: number;
   created_at: string;
 }
 

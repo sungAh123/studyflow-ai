@@ -165,6 +165,9 @@ export default function DocumentsPage({ onUnauthorized }: Props) {
                 </button>{" "}
               </>
             )}
+            {d.status === "summarizing" && d.progress_total > 0 && (
+              <> ({Math.round((d.progress_done / d.progress_total) * 100)}%)</>
+            )}
             {d.status === "done" && (
               <button onClick={() => viewSummary(d.id)}>요약 보기</button>
             )}{" "}

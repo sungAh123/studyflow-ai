@@ -11,6 +11,8 @@ class DocumentOut(BaseModel):
     status: str
     error_message: str | None = None
     page_count: int | None = None
+    progress_done: int = 0
+    progress_total: int = 0
     created_at: datetime
 
 

@@ -3,6 +3,7 @@ import logging
 from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from collections.abc import Callable
 
 from app.core import config
 from app.core.db import SessionLocal
@@ -42,17 +43,26 @@ def get_summary(db: Session, user_id: int, document_id: int) -> Summary | None:
     return db.scalar(select(Summary).where(Summary.document_id==doc.id))
 
 
-def summarize_pages(pages: list[str]) -> dict:
+def summarize_pages(
+    pages: list[str],
+    on_progress: Callable[[int, int], None] | None = None,
+) -> dict:
     chunks = make_chunks(pages, config.CHUNK_CHARS)
     if not chunks:
         raise SummaryError("요약할 텍스트가 없습니다.")
 
+    total = len(chunks) + (1 if len(chunks) > 1 else 0)
+    if on_progress:
+        on_progress(0, total)
+
     partials: list[ChunkResult] = []
-    for chunk in chunks:
+    for i, chunk in enumerate(chunks, start=1):
         try:
             partials.append(ChunkResult.model_validate(ollama.chat_json(CHUNK_SYSTEM, chunk)))
         except ValidationError as e:
             raise SummaryError("AI 응답 형식이 올바르지 않습니다. 다시 시도해 주세요.") from e
+        if on_progress:
+            on_progress(i, total)
 
     if len(partials) == 1:
         overview = partials[0].summary
@@ -61,6 +71,9 @@ def summarize_pages(pages: list[str]) -> dict:
         overview = str(ollama.chat_json(REDUCE_SYSTEM, joined).get("overview", "")).strip()
         if not overview:
             raise SummaryError("전체 요약을 만들지 못했습니다. 다시 시도해 주세요.")
+
+        if on_progress:
+            on_progress(total, total)
 
     sections = [s.model_dump() for p in partials for s in p.sections]
     seen: set[str] = set()
@@ -80,8 +93,14 @@ def run_summarization(document_id: int) -> None:
         doc = documents_service.get_for_processing(db, document_id)
         if doc is None:
             return
+        
+        def report(done: int, total: int) -> None:
+            doc.progress_done = done
+            doc.progress_total = total
+            db.commit()
+
         try:
-            result = summarize_pages(doc.pages_text or [])
+            result = summarize_pages(doc.pages_text or [], report)
         except (SummaryError, ollama.LLMError) as e:
             documents_service.set_status(db, doc, DocStatus.FAILED, str(e))
             return
