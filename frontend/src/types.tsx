@@ -1,4 +1,5 @@
 export type Day = "월" | "화" | "수" | "목" | "금" | "토" | "일";
+export type DocStatus = "uploaded" | "extracting" | "extracted" | "failed";
 
 export interface User {
   id: number;
@@ -28,3 +29,16 @@ export interface TimetableForm {
   end_time: string;
 }
 
+export interface DocumentItem {
+  id: number;
+  subject_id: number;
+  filename: string;
+  status: DocStatus;
+  error_message: string | null;
+  page_count: number | null;
+  created_at: string;
+}
+
+export interface DocumentDetail extends DocumentItem {
+  pages_text: string[] | null;
+}
