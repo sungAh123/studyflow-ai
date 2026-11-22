@@ -1,10 +1,13 @@
 import logging
 import uuid
+import multiprocessing
 from pathlib import Path
 
 from fastapi import UploadFile
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures.process import BrokenProcessPool
 
 from app.core.config import MAX_UPLOAD_MB
 from app.core.db import SessionLocal
@@ -15,6 +18,10 @@ from . import extractor
 from .models import DocStatus, Document
 
 logger = logging.getLogger("uvicorn.error")
+_pool = ProcessPoolExecutor(
+    max_workers=1,
+    mp_context=multiprocessing.get_context("spawn"),
+)
 
 UPLOAD_ROOT = Path("data/uploads")
 MAX_BYTES = MAX_UPLOAD_MB * 1024 * 1024
@@ -88,6 +95,18 @@ def delete_document(db: Session, user_id: int, document_id: int) -> bool:
     return True
 
 
+def _extract(path: str) -> list[str]:
+    global _pool
+    try:
+        return _pool.submit(extractor.extract_pages, path).result()
+    except BrokenProcessPool:
+        _pool = ProcessPoolExecutor(
+            max_workers=1,
+            mp_context=multiprocessing.get_context("spawn"),
+        )
+        raise
+
+
 def run_extraction(document_id: int) -> None:
     """백그라운드에서 실행되므로 요청 세션이 아닌 자체 세션을 사용한다."""
     with SessionLocal() as db:
@@ -99,7 +118,7 @@ def run_extraction(document_id: int) -> None:
         db.commit()
 
         try:
-            pages = extractor.extract_pages(doc.stored_path)
+            pages = _extract(doc.stored_path)
         except extractor.ExtractionError as e:
             doc.status = DocStatus.FAILED
             doc.error_message = str(e)
