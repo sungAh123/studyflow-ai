@@ -7,9 +7,12 @@ const STATUS_LABEL: Record<DocStatus, string> = {
   extracting: "추출 중",
   extracted: "추출 완료",
   summarizing: "요약 중",
+  cancelling: "중지 중",
   done: "요약 완료",
   failed: "실패",
 };
+
+const BUSY_STATUSES: DocStatus[] = ["uploaded", "extracting", "summarizing", "cancelling"];
 
 interface Props {
   onUnauthorized: () => void;
@@ -55,9 +58,7 @@ export default function DocumentsPage({ onUnauthorized }: Props) {
   }, []);
 
   //처리 중인 문서가 있으면 2초마다 상태 다시 조회
-  const inProgress = documents.some(
-    (d) => d.status === "uploaded" || d.status === "extracting" || d.status === "summarizing"
-  );
+  const inProgress = documents.some((d) => BUSY_STATUSES.includes(d.status));
   useEffect(() => {
     if (!inProgress) return;
     const timer = setTimeout(loadDocuments, 2000);
@@ -123,6 +124,26 @@ export default function DocumentsPage({ onUnauthorized }: Props) {
     }
   };
 
+  const reextract = async (id: number) => {
+    setError("");
+    try {
+      await api(`/documents/${id}/extract`, {method: "POST"});
+      await loadDocuments();
+    } catch (e) {
+      handleError(e);
+    }
+  };
+
+  const cancelSummary = async (id: number) => {
+    setError("");
+    try {
+      await api(`/summaries/${id}/cancel`, {method: "POST"});
+      await loadDocuments();
+    } catch (e) {
+      handleError(e);
+    }
+  };
+
   return (
 <section>
       {error && <p style={{ color: "crimson" }}>{error}</p>}
@@ -150,30 +171,45 @@ export default function DocumentsPage({ onUnauthorized }: Props) {
 
       <h2>자료 목록 ({documents.length})</h2>
       <ul>
-        {documents.map((d) => (
-          <li key={d.id}>
-            [{subjectName(d.subject_id)}] {d.filename} · {STATUS_LABEL[d.status]}
-            {d.page_count !== null && ` (${d.page_count}쪽)`}
-            {d.error_message && (
-              <span style={{ color: "crimson" }}> — {d.error_message}</span>
-            )}{" "}
-            {d.page_count !== null && d.status !== "summarizing" && (
-              <>
-                <button onClick={() => view(d.id)}>텍스트 보기</button>{" "}
-                <button onClick={() => summarize(d.id)}>
-                  {d.status === "done" ? "다시 요약" : "요약하기"}
-                </button>{" "}
-              </>
-            )}
-            {d.status === "summarizing" && d.progress_total > 0 && (
-              <> ({Math.round((d.progress_done / d.progress_total) * 100)}%)</>
-            )}
-            {d.status === "done" && (
-              <button onClick={() => viewSummary(d.id)}>요약 보기</button>
-            )}{" "}
-            <button onClick={() => remove(d.id)}>삭제</button>
-          </li>
-        ))}
+        {documents.map((d) => {
+          const busy = BUSY_STATUSES.includes(d.status);
+          return (
+            <li key={d.id}>
+              [{subjectName(d.subject_id)}] {d.filename} · {STATUS_LABEL[d.status]}
+              {d.page_count !== null && ` (${d.page_count}쪽)`}
+              {d.status === "summarizing" && d.progress_total > 0 && (
+                <> ({Math.round((d.progress_done / d.progress_total) * 100)}%)</>
+              )}
+              {d.error_message && (
+                <span style={{ color: "crimson" }}> — {d.error_message}</span>
+              )}{" "}
+              {!busy && d.page_count !== null && (
+                <>
+                  <button onClick={() => view(d.id)}>텍스트 보기</button>{" "}
+                  <button onClick={() => summarize(d.id)}>
+                    {d.status === "done" ? "다시 요약" : "요약하기"}
+                  </button>{" "}
+                </>
+              )}
+              {d.status === "failed" && d.page_count === null && (
+                <>
+                  <button onClick={() => reextract(d.id)}>다시 추출</button>{" "}
+                </>
+              )}
+              {d.status === "summarizing" && (
+                <>
+                  <button onClick={() => cancelSummary(d.id)}>요약 중지</button>{" "}
+                </>
+              )}
+              {d.status === "done" && (
+                <>
+                  <button onClick={() => viewSummary(d.id)}>요약 보기</button>{" "}
+                </>
+              )}
+              <button onClick={() => remove(d.id)} disabled={busy}>삭제</button>
+            </li>
+          );
+        })}
       </ul>
 
       {detail && (
