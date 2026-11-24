@@ -1,7 +1,10 @@
 import pytest
+import time
 
 from app.summaries.ollama import LLMError
-from tests.test_documents import TEXT, upload, wait_done
+from app.documents.models import DocStatus, Document
+from tests.test_documents import TEXT, force_status, upload, wait_done
+from app.core.db import SessionLocal
 
 
 def wait_summary(client, doc_id, timeout=5.0):
@@ -238,3 +241,83 @@ def test_deleting_document_also_deletes_summary(
 
     with SessionLocal() as db:
         assert db.scalar(select(func.count()).select_from(Summary)) == 0
+
+
+def wait_status(client, doc_id, wanted, timeout=5.0):
+    deadline = time.monotonic() + timeout
+    while True:
+        doc = client.get(f"/api/documents/{doc_id}").json()
+        if doc["status"] in wanted or time.monotonic() > deadline:
+            return doc
+        time.sleep(0.05)
+
+
+def test_cancel_requires_summarizing_document(client, extracted_doc):
+    doc_id = extracted_doc(client)
+
+    assert client.post(f"/api/summaries/{doc_id}/cancel").status_code == 400
+    assert client.post("/api/summaries/9999/cancel").status_code == 404
+
+
+def test_cancel_marks_cancelling_and_blocks_restart_and_delete(
+    client, extracted_doc, monkeypatch
+):
+    doc_id = extracted_doc(client)
+    monkeypatch.setattr("app.summaries.service.run_summarization", lambda document_id: None)
+    client.post(f"/api/summaries/{doc_id}")
+
+    res = client.post(f"/api/summaries/{doc_id}/cancel")
+
+    assert res.status_code == 202
+    assert res.json()["status"] == "cancelling"
+    assert client.post(f"/api/summaries/{doc_id}").status_code == 400
+    assert client.delete(f"/api/documents/{doc_id}").status_code == 409
+
+
+def test_cancel_stops_before_next_chunk(
+    client, extracted_doc, chunk_json, monkeypatch
+):
+    monkeypatch.setattr("app.core.config.CHUNK_CHARS", 100)
+    pages = ["가" * 80, "나" * 80, "다" * 80]
+    doc_id = extracted_doc(client, pages=pages)
+    with SessionLocal() as db:
+        db.get(Document, doc_id).pages_text = pages
+        db.commit()
+
+    calls = []
+
+    def fake(system, user):
+        calls.append(user)
+        if len(calls) == 1:  # 첫 조각을 처리하는 중에 사용자가 중지를 누른 상황
+            force_status(doc_id, DocStatus.CANCELLING)
+        return chunk_json()
+
+    monkeypatch.setattr("app.summaries.ollama.chat_json", fake)
+    assert client.post(f"/api/summaries/{doc_id}").status_code == 202
+
+    doc = wait_status(client, doc_id, ("extracted", "done", "failed"))
+
+    assert doc["status"] == "extracted"
+    assert doc["progress_done"] == 0
+    assert len(calls) == 1  # 두 번째 조각부터는 호출하지 않는다
+    assert client.get(f"/api/summaries/{doc_id}").status_code == 404
+
+
+def test_cancel_keeps_previous_summary(
+    client, extracted_doc, fake_llm, chunk_json, monkeypatch
+):
+    doc_id = extracted_doc(client)
+    fake_llm.responses = [chunk_json(summary="처음 요약")]
+    assert summarize(client, doc_id)["status"] == "done"
+
+    def fake(system, user):
+        force_status(doc_id, DocStatus.CANCELLING)
+        return chunk_json(summary="버려질 요약")
+
+    monkeypatch.setattr("app.summaries.ollama.chat_json", fake)
+    assert client.post(f"/api/summaries/{doc_id}").status_code == 202
+
+    doc = wait_status(client, doc_id, ("extracted", "done", "failed"))
+
+    assert doc["status"] == "done"
+    assert client.get(f"/api/summaries/{doc_id}").json()["overview"] == "처음 요약"

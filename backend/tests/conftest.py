@@ -195,3 +195,12 @@ def extracted_doc(make_subject, make_pdf):
         return doc["id"]
 
     return _make
+
+
+@pytest.fixture(autouse=True)
+def extract_in_process(monkeypatch):
+    """테스트에서는 별도 프로세스 대신 같은 프로세스에서 추출한다.
+    (monkeypatch한 설정값이 자식 프로세스에는 전달되지 않기 때문)"""
+    from app.documents import extractor
+
+    monkeypatch.setattr("app.documents.service._extract", extractor.extract_pages)

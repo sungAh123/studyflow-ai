@@ -1,4 +1,10 @@
 import time
+import pytest
+
+from app.core.db import SessionLocal
+from app.documents import service as documents_service
+from app.documents.models import DocStatus, Document
+
 
 TEXT = "\n".join(f"Operating system lecture notes line {i}" for i in range(5))
 
@@ -176,3 +182,91 @@ def test_other_user_cannot_access_documents(client, make_client, make_subject, m
     assert upload(other, subject_id, make_pdf([TEXT])).status_code == 404
 
     assert client.get(f"/api/documents/{doc_id}").status_code == 200
+
+
+def force_status(doc_id, status, **fields):
+    """테스트에서 문서를 원하는 상태로 직접 만든다."""
+    with SessionLocal() as db:
+        doc = db.get(Document, doc_id)
+        doc.status = status
+        for key, value in fields.items():
+            setattr(doc, key, value)
+        db.commit()
+
+
+@pytest.mark.parametrize(
+    "status",
+    [DocStatus.UPLOADED, DocStatus.EXTRACTING, DocStatus.SUMMARIZING, DocStatus.CANCELLING],
+)
+def test_delete_is_blocked_while_processing(client, make_subject, make_pdf, status):
+    subject_id = make_subject(client)
+    doc_id = upload(client, subject_id, make_pdf([TEXT])).json()["id"]
+    wait_done(client, doc_id)
+    force_status(doc_id, status)
+
+    res = client.delete(f"/api/documents/{doc_id}")
+
+    assert res.status_code == 409
+    assert client.get(f"/api/documents/{doc_id}").status_code == 200
+
+    force_status(doc_id, DocStatus.EXTRACTED)
+    assert client.delete(f"/api/documents/{doc_id}").status_code == 204
+
+
+def test_reextract_failed_document(client, make_subject, make_pdf):
+    subject_id = make_subject(client)
+    doc_id = upload(client, subject_id, make_pdf([TEXT])).json()["id"]
+    wait_done(client, doc_id)
+    force_status(
+        doc_id, DocStatus.FAILED,
+        pages_text=None, page_count=None, error_message="서버가 재시작되어 중단",
+    )
+
+    res = client.post(f"/api/documents/{doc_id}/extract")
+
+    assert res.status_code == 202
+    doc = wait_done(client, doc_id)
+    assert doc["status"] == "extracted"
+    assert doc["error_message"] is None
+    assert doc["page_count"] == 1
+
+
+def test_reextract_rejects_non_failed_document(client, make_subject, make_pdf):
+    subject_id = make_subject(client)
+    doc_id = upload(client, subject_id, make_pdf([TEXT])).json()["id"]
+    wait_done(client, doc_id)
+
+    assert client.post(f"/api/documents/{doc_id}/extract").status_code == 409
+
+
+def test_reextract_is_scoped_to_owner(client, make_client, make_subject, make_pdf):
+    subject_id = make_subject(client)
+    doc_id = upload(client, subject_id, make_pdf([TEXT])).json()["id"]
+    wait_done(client, doc_id)
+    force_status(doc_id, DocStatus.FAILED)
+    other = make_client(notion_user_id="notion-user-2", name="김철수")
+
+    assert other.post(f"/api/documents/{doc_id}/extract").status_code == 404
+    assert client.post("/api/documents/9999/extract").status_code == 404
+
+
+def test_recover_interrupted_marks_busy_documents_failed(client, make_subject, make_pdf):
+    subject_id = make_subject(client)
+    ids = {}
+    for status in (DocStatus.EXTRACTING, DocStatus.SUMMARIZING, DocStatus.CANCELLING):
+        doc_id = upload(client, subject_id, make_pdf([TEXT])).json()["id"]
+        wait_done(client, doc_id)
+        force_status(doc_id, status, progress_done=1, progress_total=3)
+        ids[status] = doc_id
+    done_id = upload(client, subject_id, make_pdf([TEXT])).json()["id"]
+    wait_done(client, done_id)  # extracted 상태는 건드리면 안 된다
+
+    with SessionLocal() as db:
+        assert documents_service.recover_interrupted(db) == 3
+
+    for doc_id in ids.values():
+        doc = client.get(f"/api/documents/{doc_id}").json()
+        assert doc["status"] == "failed"
+        assert "재시작" in doc["error_message"]
+        assert doc["progress_done"] == 0
+    assert client.get(f"/api/documents/{done_id}").json()["status"] == "extracted"
