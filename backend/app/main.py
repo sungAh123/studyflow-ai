@@ -1,22 +1,29 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
+from contextlib import asynccontextmanager
 
 from app.auth import models as auth_models  # noqa: F401  (테이블 등록)
 from app.auth.router import router as auth_router
 from app.core.config import COOKIE_SECURE, CORS_ORIGINS, SESSION_SECRET
-from app.core.db import Base, engine
+from app.core.db import Base, SessionLocal, engine
 from app.subjects import models as subject_models   # noqa: F401 (테이블 등록)
 from app.subjects.router import router as subject_router
-from app.documents import models as document_models  # noqa: F401  (테이블 등록)
+from app.documents import models as document_models, service as documents_service  # noqa: F401  (테이블 등록)
 from app.documents.router import router as documents_router
 from app.summaries import models as summary_models  # noqa: F401  (테이블 등록)
 from app.summaries.router import router as summaries_router
 
 Base.metadata.create_all(bind=engine)
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    with SessionLocal() as db:
+        documents_service.recover_interrupted(db)
+    yield
 
-app = FastAPI(title="StudyFlow AI")
+
+app = FastAPI(title="StudyFlow AI", lifespan=lifespan)
 
 app.add_middleware(
     SessionMiddleware,
