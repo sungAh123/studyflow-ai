@@ -24,6 +24,9 @@ STARTABLE = (DocStatus.EXTRACTED, DocStatus.DONE, DocStatus.FAILED)
 class SummaryError(Exception):
     """사용자에게 그대로 보여줄 수 있는 요약 실패 사유."""
 
+class SummaryCancelled(Exception):
+    """사용자가 요약 중지를 요청했을 때 내부에서만 쓰는 신호."""
+
 
 def start_summarization(db: Session, user_id: int, document_id: int) -> Document:
     doc = documents_service.get_document(db, user_id, document_id)
@@ -32,6 +35,9 @@ def start_summarization(db: Session, user_id: int, document_id: int) -> Document
     # page_count는 추출에 성공했을 때만 채워짐. 추출 실패 문서는 요약할 수 없다.
     if doc.status not in STARTABLE or not doc.pages_text:
         raise SummaryError("텍스트 추출이 끝난 자료만 요약할 수 있습니다.")
+    # 재요약 시 이전 진행률 안 남김
+    doc.progress_done = 0
+    doc.progress_total = 0
     documents_service.set_status(db, doc, DocStatus.SUMMARIZING)    # 중복 클릭 방지
     return doc
 
@@ -87,6 +93,77 @@ def summarize_pages(
     return {"overview": overview, "sections": sections, "terms": terms}
 
 
+def request_cancel(db: Session, user_id: int, document_id: int) -> Document:
+    doc = documents_service.get_document(db, user_id, document_id)
+    if doc is None:
+        raise LookupError("자료를 찾을 수 없습니다.")
+    if doc.status != DocStatus.SUMMARIZING:
+        raise SummaryError("요약 중인 자료만 중지할 수 있습니다.")
+    documents_service.set_status(db, doc, DocStatus.CANCELLING)
+    return doc
+
+
+def summarize_page(
+    pages: list[str],
+    on_progress: Callable[[int, int], None] | None = None,
+    should_cancel: Callable[[], bool] | None = None,
+) -> dict:
+    chunks = make_chunks(pages, config.CHUNK_CHARS)
+    if not chunks:
+        raise SummaryError("요약할 텍스트가 없습니다.")
+
+    total = len(chunks) + (1 if len(chunks) > 1 else 0)
+    if on_progress:
+        on_progress(0, total)
+
+    def check_cancel() -> None:
+        if should_cancel and should_cancel():
+            raise SummaryCancelled()
+
+    partials: list[ChunkResult] = []
+    for i, chunk in enumerate(chunks, start=1):
+        check_cancel()
+        try:
+            partials.append(ChunkResult.model_validate(ollama.chat_json(CHUNK_SYSTEM, chunk)))
+        except ValidationError as e:
+            raise SummaryError("AI 응답 형식이 올바르지 않습니다. 다시 시도해 주세요.") from e
+        if on_progress:
+            on_progress(i, total)
+
+    if len(partials) == 1:
+        overview = partials[0].summary
+    else:
+        check_cancel()
+        joined = "\n\n".join(f"[{i}] {p.summary}" for i, p in enumerate(partials, 1))
+        overview = str(ollama.chat_json(REDUCE_SYSTEM, joined).get("overview", "")).strip()
+        if not overview:
+            raise SummaryError("전체 요약을 만들지 못했습니다. 다시 시도해 주세요.")
+        if on_progress:
+            on_progress(total, total)
+
+    sections = [s.model_dump() for p in partials for s in p.sections]
+    seen: set[str] = set()
+    terms = []
+    for p in partials:
+        for t in p.terms:
+            key = t.term.strip().lower()
+            if key and key not in seen:
+                seen.add(key)
+                terms.append(t.model_dump())
+    return {"overview": overview, "sections": sections, "terms": terms}
+
+
+def _finish_cancel(db: Session, doc: Document) -> None:
+    """중지가 끝났을 때 기존 요약이 있으면 done, 없으면 extracted로 되돌림"""
+    has_old = db.scalar(select(Summary.id).where(Summary.document_id == doc.id)) is not None
+    doc.progress_done = 0
+    doc.progress_total = 0
+    documents_service.set_status(
+        db, doc, DocStatus.DONE if has_old else DocStatus.EXTRACTED
+    )
+
+
+
 def run_summarization(document_id: int) -> None:
     """백그라운드에서 실행되므로 요청 세션이 아닌 자체 세션을 사용함"""
     with SessionLocal() as db:
@@ -99,8 +176,17 @@ def run_summarization(document_id: int) -> None:
             doc.progress_total = total
             db.commit()
 
+        def is_cancelled() -> bool:
+            db.refresh(doc) # 요청 쪽에서 바꾼 상태 다시 읽음
+            return doc.status == DocStatus.CANCELLING
+
         try:
-            result = summarize_pages(doc.pages_text or [], report)
+            result = summarize_pages(doc.pages_text or [], report, is_cancelled)
+            if is_cancelled():  # 마지막 조각 처리 중에 중지를 눌렀다면 결과 벌밈
+                raise SummaryCancelled()
+        except SummaryCancelled:
+            _finish_cancel(db, doc)
+            return
         except (SummaryError, ollama.LLMError) as e:
             documents_service.set_status(db, doc, DocStatus.FAILED, str(e))
             return
