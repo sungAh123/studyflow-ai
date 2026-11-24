@@ -39,3 +39,18 @@ def get_summary (
     if summary is None:
         raise HTTPException(404, "요약 결과가 없습니다.")
     return summary
+
+
+@router.post("/{document_id}/cancel", response_model=DocumentOut, status_code=202)
+def cancel_summary(
+    document_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    try:
+        return service.request_cancel(db, user.id, document_id)
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except service.SummaryError as e:
+        raise HTTPException(400, str(e))
+        
