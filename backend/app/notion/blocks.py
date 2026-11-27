@@ -17,7 +17,7 @@ def split_text(text: str, limit: int = RICH_TEXT_LIMIT) -> list[str]:
         if cut < limit // 2:
             cut = limit
         parts.append(text[:cut].rstrip())
-        text = text[:cut].lstrip()
+        text = text[cut:].lstrip()
     if text:
         parts.append(text)
     return parts

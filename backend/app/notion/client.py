@@ -4,7 +4,7 @@ from itertools import batched
 
 import httpx
 
-from .block import BLOCKS_PER_REQUEST
+from .blocks import BLOCKS_PER_REQUEST
 
 logger = logging.getLogger("uvicorn.error")
 
