@@ -150,16 +150,26 @@ class NotionClient:
     def get_page(self, page_id: str) -> dict:
         return self._request("GET", f"/page/{page_id}")
 
-    def page_exists(self, page_id: str) -> bool:
-        """있고 삭제(휴지통)되지 않았는지"""
+    def find_page(self, page_id: str) -> bool:
+        """페이지가 있고 삭제(휴지통)되지 않았으면 페이지 정보를, 아니면 None 반환"""
         try:
             page = self.get_page(page_id)
         except NotionNotFoundError:
-            return False
-        return not (page.get("archived") or page.get("in_trash"))
+            return None
+        if page.get("archived") or page.get("in_trash"):
+            return None
+        return page
 
+    def page_exists(self, page_id: str) -> bool:
+        return self.find_page(page_id) is not None
+
+    @staticmethod
+    def title_of(page: dict) -> str:
+        return _page_title(page)
+    
     def create_page(self, parent_page_id: str, title: str, children: list[dict] | None = None) -> dict:
-        """블록이 100개를 넘으면 첫 100개로 만들고 나머지는 이어서 추가한다."""
+        """블록이 100개를 넘으면 첫 100개로 만들고 나머지는 이어서 추가한다.
+        이어 붙이다 실패하면 반쯤 만들어진 페이지는 보관 처리하고 오류를 그대로 올린다."""
         chunks = [list(c) for c in batched(children or  [], BLOCKS_PER_REQUEST)]
         body = {
             "parent": {"page_id": parent_page_id},
@@ -167,8 +177,15 @@ class NotionClient:
             "children": chunks[0] if chunks else [],
         }
         page = self._request("POST", "/pages", json=body)
-        for chunk in chunks[1:]:
-            self._append(page["id"], chunk)
+        try:
+            for chunk in chunks[1:]:
+                self._append(page["id"], chunk)
+        except NotionError:
+            try:
+                self.archive_page(page["id"]) 
+            except NotionError:
+                pass
+            raise   
         return page
 
     def update_title(self, page_id: str, title: str) -> None:
