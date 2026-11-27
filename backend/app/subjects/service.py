@@ -86,3 +86,16 @@ def get_owned_subject(db: Session, user_id: int, subject_id: int) -> Subject | N
     return db.scalar(
         select(Subject).where(Subject.id==subject_id, Subject.user_id==user_id)
     )
+
+
+def set_notion_page_id(db: Session, subject: Subject, page_id: str) -> None:
+    subject.notion_page_id = page_id
+    db.commit()
+
+
+def clear_notion_page_ids(db: Session, user_id: int) -> None:
+    """부모 페이지가 바뀔 때 호출한다. 커밋은 호출하는 쪽에서 한다."""
+    for subject in db.scalars(
+        select(Subject).where(Subject.user_id == user_id, Subject.notion_page_id.is_not(None))
+    ):
+        subject.notion_page_id = None

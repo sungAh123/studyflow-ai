@@ -9,6 +9,7 @@ from app.core import config
 from app.core.db import SessionLocal
 from app.documents import service as documents_service
 from app.documents.models import DocStatus, Document
+from app.subjects.models import Subject
 
 from . import ollama
 from .chunker import make_chunks
@@ -153,8 +154,26 @@ def run_summarization(document_id: int) -> None:
             return
 
         old = db.scalar(select(Summary).where(Summary.document_id==document_id))
+        kept_page_id = old.notion_page_id if old is not None else None
         if old is not None:
             db.delete(old)
             db.flush()
-        db.add(Summary(document_id=document_id, **result))
+        db.add(Summary(document_id=document_id, notion_page_id=kept_page_id, **result))
         documents_service.set_status(db, doc, DocStatus.DONE)
+
+
+def set_notion_page_id(db: Session, summary: Summary, page_id: str) -> None:
+    summary.notion_page_id = page_id
+    db.commit()
+
+
+def clear_notion_page_ids(db: Session, user_id: int) -> None:
+    """부모 페이지가 바뀔 때 호출한다. 커밋은 호출하는 쪽에서 함"""
+    rows = db.scalars(
+        select(Summary)
+        .join(Document, Summary.document_id == Document.id)
+        .join(Subject, Document.subject_id == Subject.id)
+        .where(Subject.user_id == user_id, Summary.notion_page_id.is_not(None))
+    )
+    for summary in rows:
+        summary.notion_page_id = None

@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.core import config
 from app.core.db import get_db
-from app.core.security import encrypt
+from app.core.security import decrypt, encrypt
 
 from .models import User
 
@@ -71,3 +71,13 @@ def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
     if user is None:
         raise HTTPException(401, "로그인이 필요합니다.")
     return user
+
+
+def get_access_token(user: User) -> str:
+    return decrypt(user.access_token_enc)
+
+
+def set_notion_parent(db: Session, user: User, page_id: str) -> None:
+    """같은 세션에서 먼저 바꾼 변경분도 함께 커밋됨"""
+    user.notion_parent_page_id = page_id
+    db.commit()
